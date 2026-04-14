@@ -1,6 +1,7 @@
 import os
 import base64
 from datetime import datetime
+from urllib.parse import urlparse
 
 import streamlit as st
 from supabase import create_client, Client
@@ -22,11 +23,28 @@ def _get_secret(key: str, default: str = "") -> str:
 
 
 SUPABASE_URL = _get_secret("SUPABASE_URL")
-SUPABASE_KEY = _get_secret("SUPABASE_ANON_KEY")
+SUPABASE_KEY = _get_secret("SUPABASE_ANON_KEY") or _get_secret("SUPABASE_PUBLISHABLE_KEY")
+
+
+def _validate_supabase_config():
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise ValueError("Supabase config is missing. Set SUPABASE_URL and SUPABASE_ANON_KEY in Streamlit secrets.")
+    parsed = urlparse(SUPABASE_URL)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(f"Invalid SUPABASE_URL: {SUPABASE_URL}")
+
+
+def _friendly_auth_error(err: Exception) -> str:
+    msg = str(err)
+    lowered = msg.lower()
+    if "getaddrinfo failed" in lowered or "name or service not known" in lowered:
+        return "Cannot reach Supabase. Check SUPABASE_URL in .streamlit/secrets.toml and confirm the project URL is correct."
+    return msg
 
 
 @st.cache_resource
 def get_supabase() -> Client:
+    _validate_supabase_config()
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
@@ -57,7 +75,7 @@ def auth_login(supabase: Client, email: str, password: str):
 
         return True, None
     except Exception as e:
-        return False, str(e)
+        return False, _friendly_auth_error(e)
 
 
 def auth_signup(supabase: Client, email: str, password: str):
@@ -73,7 +91,7 @@ def auth_signup(supabase: Client, email: str, password: str):
         )
         return True, None
     except Exception as e:
-        return False, str(e)
+        return False, _friendly_auth_error(e)
 
 
 def auth_logout(supabase: Client):
